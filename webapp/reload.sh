@@ -5,8 +5,8 @@ if [ -e /var/log/nginx/access.log ]; then
   mv /var/log/nginx/access.log /var/log/nginx/access.log.$now
 fi
 
-if [ -e /var/log/mysql/slow.log ]; then
-  mv /var/log/mysql/slow.log /var/log/mysql/mysql.log.$now
+if [ -e /var/log/mysql/mysql-slow.log ]; then
+  mv /var/log/mysql/mysql-slow.log /var/log/mysql/mysql-slow.log.$now
 fi
 
 if [ "$(pgrep mysql | wc -l)" ]; then  
