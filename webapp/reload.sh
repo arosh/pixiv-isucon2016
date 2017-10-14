@@ -1,9 +1,17 @@
 #!/bin/bash
-set -e
+set -ex
 now=`date +%Y%m%d-%H%M%S`
-mv /var/log/nginx/access.log /var/log/nginx/access.log.$now
-#mv /var/log/mysql/slow.log /var/log/mysql/mysql.log.$now
-mysqladmin -uroot flush-logs
+if [ -e /var/log/nginx/access.log ]; then
+  mv /var/log/nginx/access.log /var/log/nginx/access.log.$now
+fi
+
+if [ -e /var/log/mysql/slow.log ]; then
+  mv /var/log/mysql/slow.log /var/log/mysql/mysql.log.$now
+fi
+
+if [ "$(pgrep mysql | wc -l)" ]; then  
+  mysqladmin -uroot flush-logs
+fi
 
 cp conf/nginx.conf /etc/nginx/nginx.conf
 systemctl reload nginx
