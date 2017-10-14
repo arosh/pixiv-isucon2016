@@ -2,7 +2,7 @@
 WorkingDirectory = /home/isucon/private_isu/webapp/python
 EnvironmentFile = /home/isucon/env.sh
 
-ExecStart = /home/isucon/private_isu/webapp/python/venv/bin/gunicorn --workers=6 app:app -b '127.0.0.1:8080'
+ExecStart = /home/isucon/private_isu/webapp/python/venv/bin/gunicorn --workers=3 app:app -b 'unix:/dev/shm/app.sock'
 
 Restart   = always
 Type      = simple
