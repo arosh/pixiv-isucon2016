@@ -349,31 +349,25 @@ def post_index():
         tempf.seek(0)
         imgdata = tempf.read()
 
-    query = 'INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (%s,%s,%s,%s)'
+    query = 'INSERT INTO `posts` (`user_id`, `mime`, `body`) VALUES (%s,%s,%s)'
     cursor = db().cursor()
-    cursor.execute(query, (me['id'], mime, imgdata, flask.request.form.get('body')))
+    cursor.execute(query, (me['id'], mime, flask.request.form.get('body')))
     pid = cursor.lastrowid
+
+    DIR = '../public/image'
+    if mime == 'image/jpeg':
+        ext = 'jpg'
+    elif mime == 'image/png':
+        ext = 'png'
+    elif mime == 'image/gif':
+        ext = 'gif'
+    else:
+        raise RuntimeError('mime = %s' % mime)
+    filename = '%s/%d.%s' % (DIR, pid, ext)
+    with open(filename, 'wb') as f:
+        f.write(imgdata)
+
     return flask.redirect("/posts/%d" % pid)
-
-@app.route('/image/<id>.<ext>')
-def get_image(id, ext):
-    if not id:
-        return ""
-    id = int(id)
-    if id == 0:
-        return ""
-
-    cursor = db().cursor()
-    cursor.execute('SELECT * FROM `posts` WHERE `id` = %s', (id,))
-    post = cursor.fetchone()
-
-    mime = post['mime']
-    if (ext == 'jpg' and mime == "image/jpeg"
-            or ext == 'png' and mime == "image/png"
-            or ext == 'gif' and mime == "image/gif"):
-        return flask.Response(post['imgdata'], mimetype=mime)
-
-    flask.abort(404)
 
 @app.route('/comment', methods=['POST'])
 def post_comment():
