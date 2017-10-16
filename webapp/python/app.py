@@ -114,34 +114,45 @@ def get_session_user():
     return None
 
 
-def make_posts(results, all_comments=False):
+def make_posts(results, all_comments=False, check_del_flg=True, include_comment_count=False):
     posts = []
     cursor = db().cursor()
     for post in results:
-        cursor.execute("SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = %s",
-                       (post['id'],))
-        post['comment_count'] = cursor.fetchone()['count']
+        if not include_comment_count:
+            cursor.execute("SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = %s",
+                           (post['id'],))
+            post['comment_count'] = cursor.fetchone()['count']
     
-        query = 'SELECT * FROM `comments` WHERE `post_id` = %s ORDER BY `created_at` DESC'
+        query = '''
+        SELECT
+            `comments`.*,
+            `users`.`account_name` AS `user_account_name`
+        FROM `comments`
+        JOIN `users` ON `comments`.`user_id` = `users`.`id`
+        WHERE `post_id` = %s ORDER BY `created_at` DESC
+        '''
         if not all_comments:
             query += ' LIMIT 3'
 
         cursor.execute(query, (post['id'],))
         comments = list(cursor)
         for comment in comments:
-            cursor.execute("SELECT * FROM `users` WHERE `id` = %s", (comment['user_id'],))
-            comment['user'] = cursor.fetchone()
+            comment['user'] = {'account_name': comment['user_account_name']}
         comments.reverse()
         post['comments'] = comments
 
-        cursor.execute("SELECT * FROM `users` WHERE `id` = %s", (post['user_id'],))
-        post['user'] = cursor.fetchone()
+        if check_del_flg:
+            cursor.execute("SELECT * FROM `users` WHERE `id` = %s", (post['user_id'],))
+            post['user'] = cursor.fetchone()
 
-        if not post['user']['del_flg']:
+            if not post['user']['del_flg']:
+                posts.append(post)
+
+            if len(posts) >= POSTS_PER_PAGE:
+                break
+        else:
+            post['user'] = {'account_name': post['user_account_name']}
             posts.append(post)
-
-        if len(posts) >= POSTS_PER_PAGE:
-            break
     return posts
 
 
@@ -247,8 +258,22 @@ def get_index():
     me = get_session_user()
 
     cursor = db().cursor()
-    cursor.execute('SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` ORDER BY `created_at` DESC')
-    posts = make_posts(cursor.fetchall())
+    sql = '''
+    SELECT
+        `posts`.`id`,
+        `user_id`,
+        `body`,
+        `posts`.`created_at`,
+        `mime`,
+        `users`.`account_name` AS `user_account_name`,
+        (SELECT COUNT(*) FROM `comments` WHERE `post_id` = `posts`.`id`) AS `comment_count`
+    FROM `posts`
+    JOIN `users` ON `posts`.`user_id` = `users`.`id`
+    WHERE `users`.`del_flg` = 0
+    ORDER BY `created_at` DESC LIMIT %s;
+    '''
+    cursor.execute(sql, (POSTS_PER_PAGE, ))
+    posts = make_posts(cursor.fetchall(), check_del_flg=False, include_comment_count=True)
 
     return flask.render_template("index.html", posts=posts, me=me)
 
@@ -262,8 +287,8 @@ def get_user_list(account_name):
     if not user:
         flask.abort(404)  # raises exception
 
-    cursor.execute("SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = %s ORDER BY `created_at` DESC",
-                   (user['id'],))
+    cursor.execute("SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = %s ORDER BY `created_at` DESC LIMIT %s",
+                   (user['id'], POSTS_PER_PAGE))
     posts = make_posts(cursor.fetchall())
 
     cursor.execute('SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = %s', (user['id'],))
@@ -298,11 +323,11 @@ def get_posts():
     max_created_at = flask.request.args['max_created_at'] or None
     if max_created_at:
         max_created_at = _parse_iso8601(max_created_at)
-        cursor.execute('SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= %s ORDER BY `created_at` DESC', (max_created_at,))
+        cursor.execute('SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 AND `posts`.`created_at` <= %s ORDER BY `posts`.`created_at` DESC LIMIT %s', (max_created_at, POSTS_PER_PAGE))
     else:
-        cursor.execute('SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE ORDER BY `created_at` DESC')
+        cursor.execute('SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s', (POSTS_PER_PAGE, ))
     results = cursor.fetchall()
-    posts = make_posts(results)
+    posts = make_posts(results, check_del_flg=True)
     return flask.render_template("posts.html", posts=posts)
 
 

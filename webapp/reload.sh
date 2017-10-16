@@ -13,6 +13,9 @@ if [ "$(pgrep mysql | wc -l)" ]; then
   mysqladmin -uroot flush-logs
 fi
 
+cp conf/sysctl.conf /etc/sysctl.conf
+sysctl -p
+
 cp conf/nginx.conf /etc/nginx/nginx.conf
 systemctl reload nginx
 
