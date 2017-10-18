@@ -57,6 +57,8 @@ def db_initialize():
         'DELETE FROM comments WHERE id > 100000',
         'UPDATE users SET del_flg = 0',
         'UPDATE users SET del_flg = 1 WHERE id % 50 = 0',
+        'UPDATE posts SET user_del_flg = 0 WHERE posts.user_id IN (SELECT users.id FROM users WHERE users.del_flg = 0)',
+        'UPDATE posts SET user_del_flg = 1 WHERE posts.user_id IN (SELECT users.id FROM users WHERE users.del_flg = 1)',
     ]
     for q in sqls:
         cur.execute(q)
@@ -126,9 +128,8 @@ def make_posts(results, all_comments=False, check_del_flg=True, include_comment_
         query = '''
         SELECT
             `comments`.*,
-            `users`.`account_name` AS `user_account_name`
+            (SELECT `users`.`account_name` FROM `users` WHERE `users`.`id` = `comments`.`user_id`) AS `user_account_name`
         FROM `comments`
-        JOIN `users` ON `comments`.`user_id` = `users`.`id`
         WHERE `post_id` = %s ORDER BY `created_at` DESC
         '''
         if not all_comments:
@@ -265,11 +266,10 @@ def get_index():
         `body`,
         `posts`.`created_at`,
         `mime`,
-        `users`.`account_name` AS `user_account_name`,
+        (SELECT `users`.`account_name` FROM `users` WHERE `users`.`id` = `posts`.`user_id`) AS `user_account_name`,
         (SELECT COUNT(*) FROM `comments` WHERE `post_id` = `posts`.`id`) AS `comment_count`
     FROM `posts`
-    JOIN `users` ON `posts`.`user_id` = `users`.`id`
-    WHERE `users`.`del_flg` = 0
+    WHERE `user_del_flg` = 0
     ORDER BY `created_at` DESC LIMIT %s;
     '''
     cursor.execute(sql, (POSTS_PER_PAGE, ))
@@ -323,9 +323,9 @@ def get_posts():
     max_created_at = flask.request.args['max_created_at'] or None
     if max_created_at:
         max_created_at = _parse_iso8601(max_created_at)
-        cursor.execute('SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 AND `posts`.`created_at` <= %s ORDER BY `posts`.`created_at` DESC LIMIT %s', (max_created_at, POSTS_PER_PAGE))
+        cursor.execute('SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` WHERE `user_del_flg` = 0 AND `posts`.`created_at` <= %s ORDER BY `posts`.`created_at` DESC LIMIT %s', (max_created_at, POSTS_PER_PAGE))
     else:
-        cursor.execute('SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` JOIN `users` ON `posts`.`user_id` = `users`.`id` WHERE `users`.`del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s', (POSTS_PER_PAGE, ))
+        cursor.execute('SELECT `posts`.`id`, `user_id`, `body`, `mime`, `posts`.`created_at` FROM `posts` WHERE `user_del_flg` = 0 ORDER BY `posts`.`created_at` DESC LIMIT %s', (POSTS_PER_PAGE, ))
     results = cursor.fetchall()
     posts = make_posts(results, check_del_flg=True)
     return flask.render_template("posts.html", posts=posts)
@@ -374,9 +374,9 @@ def post_index():
         tempf.seek(0)
         imgdata = tempf.read()
 
-    query = 'INSERT INTO `posts` (`user_id`, `mime`, `body`) VALUES (%s,%s,%s)'
+    query = 'INSERT INTO `posts` (`user_id`, `mime`, `body`, `user_del_flg`) VALUES (%s,%s,%s,(SELECT `users`.`del_flg` FROM `users` WHERE `users`.`id` = %s))'
     cursor = db().cursor()
-    cursor.execute(query, (me['id'], mime, flask.request.form.get('body')))
+    cursor.execute(query, (me['id'], mime, flask.request.form.get('body'), me['id']))
     pid = cursor.lastrowid
 
     DIR = '../public/image'
@@ -442,8 +442,10 @@ def post_banned():
         flask.abort(422)
 
     cursor = db().cursor()
-    query = 'UPDATE `users` SET `del_flg` = %s WHERE `id` = %s'
     for id in flask.request.form.getlist('uid', type=int):
+        query = 'UPDATE `users` SET `del_flg` = %s WHERE `id` = %s'
+        cursor.execute(query, (1, id))
+        query = 'UPDATE `posts` SET `user_del_flg` = %s WHERE `user_id` = %s'
         cursor.execute(query, (1, id))
 
     return flask.redirect('/admin/banned')
